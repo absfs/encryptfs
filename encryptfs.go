@@ -128,7 +128,25 @@ func (e *EncryptFS) OpenFile(name string, flag int, perm os.FileMode) (absfs.Fil
 		return nil, err
 	}
 
-	// Wrap the file with encryption/decryption
+	// Check if chunking is enabled
+	useChunking := e.config.ChunkSize > 0
+
+	if useChunking {
+		// Use chunked file for better performance with large files
+		chunkSize := uint32(e.config.ChunkSize)
+		if chunkSize == 0 {
+			chunkSize = DefaultChunkSize
+		}
+
+		chunkFile, err := newChunkedFile(baseFile, e, chunkSize, flag)
+		if err != nil {
+			baseFile.Close()
+			return nil, err
+		}
+		return chunkFile, nil
+	}
+
+	// Use traditional single-chunk encryption
 	encFile, err := newEncryptedFile(baseFile, e, flag)
 	if err != nil {
 		baseFile.Close()
