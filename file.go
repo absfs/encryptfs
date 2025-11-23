@@ -103,7 +103,61 @@ func (f *encryptedFile) loadFile() error {
 		return err
 	}
 
-	// Derive key from salt
+	// Read ciphertext (do this before key derivation to avoid multiple reads)
+	ciphertext, err := io.ReadAll(f.base)
+	if err != nil {
+		return fmt.Errorf("failed to read ciphertext: %w", err)
+	}
+
+	// Try to decrypt with the key provider(s)
+	// Check if we have a MultiKeyProvider for fallback support
+	if multiProvider, ok := f.fs.keyProvider.(*MultiKeyProvider); ok {
+		// Try each provider in order
+		var lastErr error
+		for _, provider := range multiProvider.providers {
+			key, err := provider.DeriveKey(f.header.Salt)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			// Create cipher engine
+			engine, err := NewCipherEngine(f.header.Cipher, key)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			// Try to decrypt
+			if len(ciphertext) > 0 {
+				plaintext, err := engine.Decrypt(f.header.Nonce, ciphertext)
+				if err != nil {
+					lastErr = err
+					continue
+				}
+				// Success!
+				f.engine = engine
+				f.plaintext = plaintext
+				f.dirty = false
+				f.offset = 0
+				return nil
+			} else {
+				f.engine = engine
+				f.plaintext = []byte{}
+				f.dirty = false
+				f.offset = 0
+				return nil
+			}
+		}
+
+		// All providers failed
+		if lastErr != nil {
+			return fmt.Errorf("all key providers failed to decrypt: %w", lastErr)
+		}
+		return fmt.Errorf("no key providers could decrypt the file")
+	}
+
+	// Single key provider - standard path
 	key, err := f.fs.keyProvider.DeriveKey(f.header.Salt)
 	if err != nil {
 		return fmt.Errorf("failed to derive key: %w", err)
@@ -113,12 +167,6 @@ func (f *encryptedFile) loadFile() error {
 	f.engine, err = NewCipherEngine(f.header.Cipher, key)
 	if err != nil {
 		return fmt.Errorf("failed to create cipher engine: %w", err)
-	}
-
-	// Read ciphertext
-	ciphertext, err := io.ReadAll(f.base)
-	if err != nil {
-		return fmt.Errorf("failed to read ciphertext: %w", err)
 	}
 
 	// Decrypt if there's any ciphertext
