@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Phase 4: Advanced Streaming Encryption
+- **Multi-Chunk File Format** (`chunk_format.go`)
+  - `ChunkIndexHeader`: Metadata for all chunks with offsets and sizes
+  - `EncryptedChunkHeader`: Per-chunk metadata with unique nonces
+  - Reserved index space (20 KB) prevents header growth from overwriting data
+  - Configurable chunk sizes: 64 bytes to 16 MB (default 64 KB)
+  - Efficient chunk lookup with FindChunkForOffset algorithm
+  - Helper functions for chunk calculations
+
+- **Chunked File Implementation** (`chunked_file.go`)
+  - Full absfs.File interface compliance (all 15 methods)
+  - Efficient seeking without decrypting entire file
+  - LRU cache for 16 chunks to minimize disk I/O
+  - Thread-safe operations with mutex locks
+  - Read-modify-write support for partial chunk updates
+  - Lazy chunk loading on demand
+  - Independent nonces per chunk for security
+  - Automatic mode selection based on Config.ChunkSize
+
+- **EncryptFS Integration**
+  - Automatic chunked vs traditional file selection
+  - ChunkSize configuration option
+  - Backward compatible with existing encrypted files
+
+- **Testing** (`chunked_file_test.go`)
+  - 6 comprehensive test scenarios:
+    - Chunk index serialization/deserialization
+    - Chunk offset lookup algorithm
+    - Basic write/read operations
+    - Seeking across multiple chunks
+    - Large file handling (1MB with 4KB chunks)
+    - Partial chunk modification
+  - 3 performance benchmarks:
+    - Sequential write throughput
+    - Sequential read throughput
+    - Random seek performance
+  - All tests passing (48 total tests in project)
+
+### Fixed
+- Chunk creation bug for empty files (ensureChunkLoaded now handles new chunks)
+- Chunk index overwrite issue (reserved 20KB space prevents data corruption)
+- Infinite loop in write operation (simplified findOrCreateChunkForWrite)
+- Off-by-one error in seek test case
+
+### Technical Details
+- **File Layout**:
+  - File Header (magic, version, cipher, salt, nonce)
+  - Chunk Index (20 KB reserved, stores offsets and sizes)
+  - Encrypted Chunks (header + ciphertext + auth tag)
+- **Performance**: Enables efficient random access to large encrypted files
+- **Security**: Each chunk encrypted with independent nonce, preventing correlation
+
 ## [0.2.0] - 2025-11-23
 
 ### Added
