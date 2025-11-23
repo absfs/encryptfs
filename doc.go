@@ -10,12 +10,17 @@
 //
 // # Supported Cipher Suites
 //
+// Content Encryption:
 // - AES-256-GCM: Advanced Encryption Standard with 256-bit keys and
 //   Galois/Counter Mode for authenticated encryption
 // - ChaCha20-Poly1305: Modern stream cipher with Poly1305 message
 //   authentication
 //
-// Both cipher suites provide:
+// Filename Encryption:
+// - AES-SIV: Synthetic Initialization Vector mode for deterministic
+//   filename encryption (RFC 5297)
+//
+// Both content cipher suites provide:
 //   - Authenticated Encryption with Associated Data (AEAD)
 //   - Protection against tampering and corruption
 //   - 128-bit authentication tags
@@ -49,6 +54,31 @@
 //	file.WriteString("This will be encrypted on disk")
 //	file.Close()
 //
+// # Filename Encryption
+//
+// The package supports three modes of filename encryption:
+//
+//	// No filename encryption (content only)
+//	config := &encryptfs.Config{
+//	    FilenameEncryption: encryptfs.FilenameEncryptionNone,
+//	}
+//
+//	// Deterministic filename encryption (SIV mode)
+//	config := &encryptfs.Config{
+//	    FilenameEncryption: encryptfs.FilenameEncryptionDeterministic,
+//	    PreserveExtensions: true, // Keep .txt, .jpg visible
+//	}
+//
+//	// Random filename encryption with metadata database
+//	config := &encryptfs.Config{
+//	    FilenameEncryption: encryptfs.FilenameEncryptionRandom,
+//	    MetadataPath:       "/.encryptfs-metadata.json",
+//	}
+//
+// Deterministic mode uses AES-SIV to encrypt filenames consistently (same name
+// always produces same ciphertext), preserving directory structure while hiding
+// filenames. Random mode assigns UUID-based names for maximum security.
+//
 // # Security Considerations
 //
 // Protected Against:
@@ -62,7 +92,10 @@
 //   - Side-channel attacks (timing, cache)
 //   - Compromised systems with keyloggers or malware
 //   - Physical access attacks on running systems
-//   - Metadata leakage (file sizes, access patterns)
+//   - Metadata leakage (file sizes, access patterns - unless filename encryption enabled)
+//
+// Note: When using FilenameEncryptionDeterministic or FilenameEncryptionRandom,
+// filenames are encrypted, significantly reducing metadata leakage.
 //
 // # Key Derivation
 //
