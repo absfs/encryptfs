@@ -170,6 +170,11 @@ func (cf *ChunkedFile) writeHeaders() error {
 
 // Read reads up to len(p) bytes from the chunked file
 func (cf *ChunkedFile) Read(p []byte) (int, error) {
+	// Input validation
+	if p == nil {
+		return 0, ErrNilBuffer
+	}
+
 	cf.mu.Lock()
 	defer cf.mu.Unlock()
 
@@ -217,6 +222,11 @@ func (cf *ChunkedFile) Read(p []byte) (int, error) {
 
 // Write writes len(p) bytes to the chunked file
 func (cf *ChunkedFile) Write(p []byte) (int, error) {
+	// Input validation
+	if p == nil {
+		return 0, ErrNilBuffer
+	}
+
 	cf.mu.Lock()
 	defer cf.mu.Unlock()
 
@@ -637,6 +647,11 @@ func (cf *ChunkedFile) Readdir(n int) ([]os.FileInfo, error) {
 // WriteBulk writes data using parallel chunk encryption (experimental)
 // This method is optimized for large sequential writes
 func (cf *ChunkedFile) WriteBulk(p []byte) (int, error) {
+	// Input validation
+	if p == nil {
+		return 0, ErrNilBuffer
+	}
+
 	cf.mu.Lock()
 	defer cf.mu.Unlock()
 
@@ -737,6 +752,11 @@ func (cf *ChunkedFile) WriteBulk(p []byte) (int, error) {
 // ReadBulk reads data using parallel chunk decryption (experimental)
 // This method is optimized for large sequential reads
 func (cf *ChunkedFile) ReadBulk(p []byte) (int, error) {
+	// Input validation
+	if p == nil {
+		return 0, ErrNilBuffer
+	}
+
 	cf.mu.Lock()
 	defer cf.mu.Unlock()
 

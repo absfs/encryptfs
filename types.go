@@ -263,12 +263,4 @@ func HashFuncToHash(hf HashFunc) func() hash.Hash {
 	}
 }
 
-// Common errors
-var (
-	ErrInvalidKey        = errors.New("invalid encryption key")
-	ErrInvalidCiphertext = errors.New("invalid ciphertext")
-	ErrAuthFailed        = errors.New("authentication failed - data may be corrupted or tampered")
-	ErrInvalidHeader     = errors.New("invalid file header")
-	ErrUnsupportedVersion = errors.New("unsupported file format version")
-	ErrUnsupportedCipher = errors.New("unsupported cipher suite")
-)
+// Common errors moved to errors.go for better organization
