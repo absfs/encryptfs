@@ -108,7 +108,7 @@ func TestChunkedFile_WriteRead(t *testing.T) {
 			Iterations:  1,
 			Parallelism: 2,
 		}),
-		ChunkSize: 1024, // Small chunks for testing
+		ChunkSize: 4 * 1024, // 4KB chunks (minimum valid size)
 	}
 
 	fs, err := New(base, config)
@@ -168,7 +168,7 @@ func TestChunkedFile_Seek(t *testing.T) {
 			Iterations:  1,
 			Parallelism: 2,
 		}),
-		ChunkSize: 100, // Very small chunks for testing seek across chunks
+		ChunkSize: 4 * 1024, // 4KB chunks for testing seek across chunks
 	}
 
 	fs, err := New(base, config)
@@ -317,7 +317,7 @@ func TestChunkedFile_PartialChunkWrite(t *testing.T) {
 			Iterations:  1,
 			Parallelism: 2,
 		}),
-		ChunkSize: 100,
+		ChunkSize: 4 * 1024, // 4KB chunks (minimum valid size)
 	}
 
 	fs, err := New(base, config)
