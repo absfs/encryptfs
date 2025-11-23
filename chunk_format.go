@@ -37,6 +37,11 @@ const (
 
 	// MaxChunkSize is the maximum allowed chunk size (16 MB)
 	MaxChunkSize = 16 * 1024 * 1024
+
+	// ChunkIndexReservedSize is the reserved space for chunk index (enough for ~1700 chunks)
+	// This prevents the index from overwriting chunk data as it grows
+	// Size calculation: 8 (header) + 1700 * 12 (offset + size per chunk) = 20,408 bytes
+	ChunkIndexReservedSize = 20 * 1024 // 20 KB
 )
 
 // ChunkIndexHeader contains metadata about all chunks in the file
@@ -57,8 +62,14 @@ func NewChunkIndexHeader(chunkSize uint32) *ChunkIndexHeader {
 	}
 }
 
-// Size returns the total size of the chunk index header in bytes
+// Size returns the total size of the chunk index header in bytes (including reserved space)
 func (h *ChunkIndexHeader) Size() int64 {
+	// Always return the reserved size to ensure consistent file layout
+	return ChunkIndexReservedSize
+}
+
+// ActualSize returns the actual size of the data (without padding)
+func (h *ChunkIndexHeader) ActualSize() int64 {
 	// 4 (chunk size) + 4 (count) + count*8 (offsets) + count*4 (sizes)
 	return int64(8 + len(h.ChunkOffsets)*8 + len(h.PlaintextSizes)*4)
 }
@@ -89,6 +100,14 @@ func (h *ChunkIndexHeader) WriteTo(w io.Writer) (int64, error) {
 		if err := binary.Write(buf, binary.LittleEndian, size); err != nil {
 			return 0, fmt.Errorf("failed to write plaintext size: %w", err)
 		}
+	}
+
+	// Write padding to fill reserved space
+	actualSize := buf.Len()
+	paddingSize := int(ChunkIndexReservedSize) - actualSize
+	if paddingSize > 0 {
+		padding := make([]byte, paddingSize)
+		buf.Write(padding)
 	}
 
 	n, err := w.Write(buf.Bytes())
@@ -127,6 +146,17 @@ func (h *ChunkIndexHeader) ReadFrom(r io.Reader) (int64, error) {
 			return totalRead, fmt.Errorf("failed to read plaintext size %d: %w", i, err)
 		}
 		totalRead += 4
+	}
+
+	// Skip padding to reach the end of reserved space
+	paddingSize := ChunkIndexReservedSize - totalRead
+	if paddingSize > 0 {
+		padding := make([]byte, paddingSize)
+		n, err := io.ReadFull(r, padding)
+		totalRead += int64(n)
+		if err != nil {
+			return totalRead, fmt.Errorf("failed to skip padding: %w", err)
+		}
 	}
 
 	return totalRead, nil

@@ -113,7 +113,7 @@
 //
 // # File Format
 //
-// Encrypted files use the following format:
+// Traditional (single-chunk) encrypted files:
 //   - Magic bytes (4 bytes): "ENCR" (0x454E4352)
 //   - Version (1 byte): File format version
 //   - Cipher suite (1 byte): Identifies the encryption algorithm
@@ -122,6 +122,37 @@
 //   - Nonce size (2 bytes): Length of the nonce
 //   - Nonce (variable): Random nonce for encryption
 //   - Ciphertext (variable): Encrypted data + authentication tag
+//
+// # Chunked File Format
+//
+// For efficient random access, files can be encrypted in chunks (enabled via
+// Config.ChunkSize). Chunked files use this format:
+//
+//   - File Header (same as above)
+//   - Chunk Index (20 KB reserved):
+//     - Chunk size (4 bytes): Size of plaintext chunks
+//     - Chunk count (4 bytes): Number of chunks
+//     - Chunk offsets (8 bytes each): File offset for each chunk
+//     - Plaintext sizes (4 bytes each): Plaintext size for each chunk
+//     - Padding (fills remaining reserved space)
+//   - Encrypted Chunks (variable number):
+//     - Chunk header (plaintext size + nonce)
+//     - Ciphertext (encrypted chunk data + auth tag)
+//
+// Benefits of chunked format:
+//   - Efficient seeking without decrypting entire file
+//   - Random access to any chunk
+//   - Modify individual chunks without rewriting entire file
+//   - LRU cache reduces disk I/O for frequently accessed chunks
+//   - Each chunk has independent nonce for security
+//
+// Usage:
+//
+//	config := &encryptfs.Config{
+//	    Cipher: encryptfs.CipherAES256GCM,
+//	    KeyProvider: keyProvider,
+//	    ChunkSize: 64 * 1024, // 64 KB chunks (default)
+//	}
 //
 // # Performance
 //

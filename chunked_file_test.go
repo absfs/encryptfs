@@ -205,7 +205,7 @@ func TestChunkedFile_Seek(t *testing.T) {
 		{100, io.SeekStart, 100, '0'},   // Start of second chunk
 		{250, io.SeekStart, 250, '0'},   // Middle of file
 		{-10, io.SeekEnd, 490, '0'},     // Near end
-		{10, io.SeekCurrent, 500, 0},    // EOF
+		{9, io.SeekCurrent, 500, 0},     // EOF (491 after previous read + 9 = 500)
 	}
 
 	for i, tt := range tests {
