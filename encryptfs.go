@@ -10,10 +10,12 @@ import (
 
 // EncryptFS implements absfs.FileSystem with transparent encryption
 type EncryptFS struct {
-	base        absfs.FileSystem
-	config      *Config
-	keyProvider KeyProvider
-	cipher      CipherSuite
+	base              absfs.FileSystem
+	config            *Config
+	keyProvider       KeyProvider
+	cipher            CipherSuite
+	filenameEncryptor FilenameEncryptor
+	masterKey         []byte
 }
 
 // New creates a new encrypted filesystem wrapping the base filesystem
@@ -33,12 +35,41 @@ func New(base absfs.FileSystem, config *Config) (*EncryptFS, error) {
 		cipher = CipherAES256GCM
 	}
 
+	// Derive master key for filename encryption
+	salt, err := config.KeyProvider.GenerateSalt()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	masterKey, err := config.KeyProvider.DeriveKey(salt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive key: %w", err)
+	}
+
+	// Create filename encryptor
+	filenameEncryptor, err := NewFilenameEncryptor(config, masterKey, base)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create filename encryptor: %w", err)
+	}
+
 	return &EncryptFS{
-		base:        base,
-		config:      config,
-		keyProvider: config.KeyProvider,
-		cipher:      cipher,
+		base:              base,
+		config:            config,
+		keyProvider:       config.KeyProvider,
+		cipher:            cipher,
+		filenameEncryptor: filenameEncryptor,
+		masterKey:         masterKey,
 	}, nil
+}
+
+// translatePath translates a plaintext path to its encrypted form
+func (e *EncryptFS) translatePath(plaintext string) (string, error) {
+	return e.filenameEncryptor.EncryptPath(plaintext)
+}
+
+// untranslatePath translates an encrypted path back to plaintext
+func (e *EncryptFS) untranslatePath(ciphertext string) (string, error) {
+	return e.filenameEncryptor.DecryptPath(ciphertext)
 }
 
 // Separator returns the path separator for the underlying filesystem
@@ -53,12 +84,20 @@ func (e *EncryptFS) ListSeparator() uint8 {
 
 // Chdir changes the current working directory
 func (e *EncryptFS) Chdir(dir string) error {
-	return e.base.Chdir(dir)
+	encryptedPath, err := e.translatePath(dir)
+	if err != nil {
+		return err
+	}
+	return e.base.Chdir(encryptedPath)
 }
 
 // Getwd returns the current working directory
 func (e *EncryptFS) Getwd() (string, error) {
-	return e.base.Getwd()
+	encryptedPath, err := e.base.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return e.untranslatePath(encryptedPath)
 }
 
 // TempDir returns the temporary directory path
@@ -78,7 +117,13 @@ func (e *EncryptFS) Create(name string) (absfs.File, error) {
 
 // OpenFile opens a file with the specified flags and permissions
 func (e *EncryptFS) OpenFile(name string, flag int, perm os.FileMode) (absfs.File, error) {
-	baseFile, err := e.base.OpenFile(name, flag, perm)
+	// Translate path to encrypted form
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return nil, err
+	}
+
+	baseFile, err := e.base.OpenFile(encryptedPath, flag, perm)
 	if err != nil {
 		return nil, err
 	}
@@ -95,32 +140,61 @@ func (e *EncryptFS) OpenFile(name string, flag int, perm os.FileMode) (absfs.Fil
 
 // Mkdir creates a directory
 func (e *EncryptFS) Mkdir(name string, perm os.FileMode) error {
-	return e.base.Mkdir(name, perm)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
+	return e.base.Mkdir(encryptedPath, perm)
 }
 
 // MkdirAll creates a directory and all necessary parent directories
 func (e *EncryptFS) MkdirAll(name string, perm os.FileMode) error {
-	return e.base.MkdirAll(name, perm)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
+	return e.base.MkdirAll(encryptedPath, perm)
 }
 
 // Remove removes a file or empty directory
 func (e *EncryptFS) Remove(name string) error {
-	return e.base.Remove(name)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
+	return e.base.Remove(encryptedPath)
 }
 
 // RemoveAll removes a path and any children it contains
 func (e *EncryptFS) RemoveAll(path string) error {
-	return e.base.RemoveAll(path)
+	encryptedPath, err := e.translatePath(path)
+	if err != nil {
+		return err
+	}
+	return e.base.RemoveAll(encryptedPath)
 }
 
 // Rename renames (moves) a file
 func (e *EncryptFS) Rename(oldpath, newpath string) error {
-	return e.base.Rename(oldpath, newpath)
+	encryptedOld, err := e.translatePath(oldpath)
+	if err != nil {
+		return err
+	}
+	encryptedNew, err := e.translatePath(newpath)
+	if err != nil {
+		return err
+	}
+	return e.base.Rename(encryptedOld, encryptedNew)
 }
 
 // Stat returns file information
 func (e *EncryptFS) Stat(name string) (os.FileInfo, error) {
-	info, err := e.base.Stat(name)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := e.base.Stat(encryptedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -136,24 +210,40 @@ func (e *EncryptFS) Stat(name string) (os.FileInfo, error) {
 
 // Chmod changes the mode of a file
 func (e *EncryptFS) Chmod(name string, mode os.FileMode) error {
-	return e.base.Chmod(name, mode)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
+	return e.base.Chmod(encryptedPath, mode)
 }
 
 // Chtimes changes the access and modification times of a file
 func (e *EncryptFS) Chtimes(name string, atime time.Time, mtime time.Time) error {
-	return e.base.Chtimes(name, atime, mtime)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
+	return e.base.Chtimes(encryptedPath, atime, mtime)
 }
 
 // Chown changes the owner and group of a file
 func (e *EncryptFS) Chown(name string, uid, gid int) error {
-	return e.base.Chown(name, uid, gid)
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
+	return e.base.Chown(encryptedPath, uid, gid)
 }
 
 // Truncate truncates a file to a specified size
 func (e *EncryptFS) Truncate(name string, size int64) error {
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return err
+	}
 	// For encrypted files, we need to account for the header and overhead
 	// For now, we'll implement basic truncation
-	return e.base.Truncate(name, size)
+	return e.base.Truncate(encryptedPath, size)
 }
 
 // encryptedFileInfo wraps os.FileInfo to adjust size for encrypted files
