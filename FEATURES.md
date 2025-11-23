@@ -177,19 +177,66 @@ fs, _ := encryptfs.New(baseFS, &encryptfs.Config{
 
 ## Testing
 
-- **Unit Tests**: 11 test cases covering all major functionality
+- **Unit Tests**: 30+ test cases covering all major functionality
+  - SIV cipher: 6 test suites
+  - Filename encryption: 9 test suites
+  - Core encryption: 11 test suites
+  - Key management: 4 test suites
 - **Integration Tests**: Full filesystem operations
-- **Security Tests**: Wrong password detection, tampering detection
-- **Benchmark Tests**: Performance characterization
-- **Code Coverage**: >50% coverage
+- **Security Tests**:
+  - Wrong password detection
+  - Tampering detection
+  - SIV authentication verification
+  - Filename encryption round-trips
+- **Benchmark Tests**: Performance characterization for all components
+- **Code Coverage**: >60% coverage
+
+### Phase 3: Filename Encryption ✅
+
+#### Deterministic Filename Encryption (SIV Mode)
+- **AES-SIV Implementation**: RFC 5297 compliant Synthetic IV mode
+  - Deterministic encryption (same filename → same ciphertext)
+  - Nonce-misuse resistant
+  - Authentication included
+- **Path Preservation**: Directory structure remains navigable
+- **Base64 URL-safe Encoding**: Filesystem compatibility
+- **Efficient Lookups**: Path-based operations work normally
+
+#### Random Filename Encryption
+- **UUID-based Naming**: Each file gets unique random identifier
+- **Metadata Database**: JSON-based mapping storage
+  - Forward mapping: encrypted → plaintext
+  - Reverse mapping: plaintext → encrypted
+  - Persistent storage with load/save
+- **Maximum Security**: No filename correlation exposed
+- **Consistency**: Metadata ensures same file keeps same encrypted name
+
+#### Extension Preservation
+- **Configurable Option**: Keep file extensions visible
+- **OS Integration**: File type detection works normally
+- **Selective Encryption**: Only base name encrypted, extension plaintext
+- **Multi-extension Support**: Handles .tar.gz, .min.js, etc.
+
+#### Configuration Options
+- **Three Modes**:
+  - `FilenameEncryptionNone`: Content-only encryption
+  - `FilenameEncryptionDeterministic`: SIV-based deterministic
+  - `FilenameEncryptionRandom`: UUID with metadata
+- **Extension Control**: `PreserveExtensions` flag
+- **Metadata Path**: Configurable location for mapping database
+
+#### Integration
+- **Transparent Operation**: Filesystem methods handle translation
+- **Path Translation**: All EncryptFS operations support encrypted paths
+- **Special Cases**: `.` and `..` preserved correctly
+- **Error Handling**: Graceful degradation and clear error messages
 
 ## Future Enhancements (Not Yet Implemented)
 
-### Phase 3: Filename Encryption
-- Deterministic filename encryption (SIV mode)
-- Random filename encryption with metadata database
+### Phase 3: Advanced Features (Future)
 - Per-directory encryption policies
-- Extension preservation options
+- Filename encryption key rotation
+- Metadata encryption and compression
 
 ### Phase 4: Advanced Streaming
 - True multi-chunk file format
@@ -211,25 +258,30 @@ fs, _ := encryptfs.New(baseFS, &encryptfs.Config{
 - Working examples:
   - Basic usage (`examples/basic/`)
   - Advanced features (`examples/advanced/`)
+  - Filename encryption (`examples/filename-encryption/`)
 - Security considerations documented
 - Performance benchmarks included
+- Comprehensive README with security analysis
 
 ## Project Status
 
-**Current Version**: v0.1.0 (Initial Implementation)
+**Current Version**: v0.2.0 (Phase 3 Complete)
 
-**Stability**: Beta - API may change
+**Stability**: Beta - API stabilizing
 
 **Production Readiness**:
 - ✅ Core encryption (Phase 1)
 - ✅ Key management (Phase 2)
+- ✅ Filename encryption (Phase 3) - **NEW**
 - ✅ Performance benchmarked (Phase 5)
 - ⚠️  Streaming (Phase 4) - Foundation only
-- ❌ Filename encryption (Phase 3) - Not implemented
 
 **Recommended Use Cases**:
-- Encrypting configuration files
-- Secure storage of credentials
+- Encrypting configuration files with hidden names
+- Secure storage of credentials with metadata protection
 - At-rest encryption for small to medium datasets
 - Key rotation scenarios
 - Migration from one encryption scheme to another
+- Compliance requirements needing filename encryption
+- Cloud storage with filename privacy
+- Encrypted backups with directory structure preservation
