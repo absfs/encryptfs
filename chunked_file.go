@@ -634,6 +634,209 @@ func (cf *ChunkedFile) Readdir(n int) ([]os.FileInfo, error) {
 	return nil, fmt.Errorf("not a directory")
 }
 
+// WriteBulk writes data using parallel chunk encryption (experimental)
+// This method is optimized for large sequential writes
+func (cf *ChunkedFile) WriteBulk(p []byte) (int, error) {
+	cf.mu.Lock()
+	defer cf.mu.Unlock()
+
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	// Check if parallel processing is enabled and worthwhile
+	if !cf.fs.config.Parallel.Enabled || len(p) < int(cf.chunkSize)*4 {
+		// Fall back to sequential write
+		return cf.writeInternal(p)
+	}
+
+	// Calculate how many chunks we'll write
+	startChunkIdx := uint32(cf.position / int64(cf.chunkSize))
+	endPos := cf.position + int64(len(p))
+	endChunkIdx := uint32((endPos + int64(cf.chunkSize) - 1) / int64(cf.chunkSize))
+	numChunks := endChunkIdx - startChunkIdx
+
+	// If not enough chunks for parallel, use sequential
+	minChunks := uint32(cf.fs.config.Parallel.MinChunksForParallel)
+	if minChunks == 0 {
+		minChunks = 4
+	}
+	if numChunks < minChunks {
+		return cf.writeInternal(p)
+	}
+
+	// Prepare chunks for parallel encryption
+	jobs := make([]chunkJob, 0, numChunks)
+	offset := 0
+
+	for chunkIdx := startChunkIdx; chunkIdx < endChunkIdx && offset < len(p); chunkIdx++ {
+		offsetInChunk := cf.position % int64(cf.chunkSize)
+		if chunkIdx > startChunkIdx {
+			offsetInChunk = 0
+		}
+
+		// Calculate how much to write to this chunk
+		available := int64(cf.chunkSize) - offsetInChunk
+		toWrite := int64(len(p)) - int64(offset)
+		if toWrite > available {
+			toWrite = available
+		}
+
+		// Prepare chunk data
+		chunkData := make([]byte, cf.chunkSize)
+		copy(chunkData[offsetInChunk:], p[offset:offset+int(toWrite)])
+
+		// Generate nonce
+		nonce := make([]byte, cf.engine.NonceSize())
+		rand.Read(nonce)
+
+		jobs = append(jobs, chunkJob{
+			index:     chunkIdx,
+			plaintext: chunkData[:offsetInChunk+toWrite],
+			nonce:     nonce,
+		})
+
+		offset += int(toWrite)
+		cf.position += toWrite
+	}
+
+	// Encrypt chunks in parallel
+	if err := cf.parallelEncryptChunks(jobs); err != nil {
+		return 0, err
+	}
+
+	// Write encrypted chunks to disk
+	for _, job := range jobs {
+		chunkHeader := NewEncryptedChunkHeader(uint32(len(job.plaintext)), job.nonce)
+
+		// Calculate write offset
+		var writeOffset int64
+		if job.index < cf.chunkIndex.ChunkCount {
+			writeOffset = int64(cf.chunkIndex.ChunkOffsets[job.index])
+		} else {
+			writeOffset, _ = cf.base.Seek(0, io.SeekEnd)
+		}
+
+		// Write chunk
+		cf.base.Seek(writeOffset, io.SeekStart)
+		chunkHeader.WriteTo(cf.base)
+		cf.base.Write(job.ciphertext)
+
+		// Update index
+		if job.index < cf.chunkIndex.ChunkCount {
+			cf.chunkIndex.PlaintextSizes[job.index] = uint32(len(job.plaintext))
+		} else {
+			cf.chunkIndex.AddChunk(uint64(writeOffset), uint32(len(job.plaintext)))
+		}
+	}
+
+	cf.dirty = true
+	return len(p), nil
+}
+
+// ReadBulk reads data using parallel chunk decryption (experimental)
+// This method is optimized for large sequential reads
+func (cf *ChunkedFile) ReadBulk(p []byte) (int, error) {
+	cf.mu.Lock()
+	defer cf.mu.Unlock()
+
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	fileSize := cf.chunkIndex.TotalPlaintextSize()
+	if cf.position >= fileSize {
+		return 0, io.EOF
+	}
+
+	// Check if parallel processing is enabled and worthwhile
+	if !cf.fs.config.Parallel.Enabled || len(p) < int(cf.chunkSize)*4 {
+		// Fall back to sequential read
+		return cf.readInternal(p)
+	}
+
+	// Calculate chunks we need to read
+	startChunkIdx, offsetInStart, _ := cf.chunkIndex.FindChunkForOffset(cf.position)
+	endPos := cf.position + int64(len(p))
+	if endPos > fileSize {
+		endPos = fileSize
+	}
+
+	var endChunkIdx uint32
+	if endPos == fileSize {
+		endChunkIdx = cf.chunkIndex.ChunkCount
+	} else {
+		endChunkIdx, _, _ = cf.chunkIndex.FindChunkForOffset(endPos - 1)
+		endChunkIdx++
+	}
+
+	numChunks := endChunkIdx - startChunkIdx
+
+	// If not enough chunks for parallel, use sequential
+	minChunks := uint32(cf.fs.config.Parallel.MinChunksForParallel)
+	if minChunks == 0 {
+		minChunks = 4
+	}
+	if numChunks < minChunks {
+		return cf.readInternal(p)
+	}
+
+	// Load and decrypt chunks in parallel
+	jobs := make([]chunkJob, numChunks)
+	for i := uint32(0); i < numChunks; i++ {
+		chunkIdx := startChunkIdx + i
+
+		// Get chunk info
+		offset, plaintextSize, _ := cf.chunkIndex.GetChunkInfo(chunkIdx)
+
+		// Seek and read chunk header
+		cf.base.Seek(int64(offset), io.SeekStart)
+		header := &EncryptedChunkHeader{}
+		header.ReadFrom(cf.base, cf.engine.NonceSize())
+
+		// Read ciphertext
+		ciphertextSize := int(plaintextSize) + cf.engine.Overhead()
+		ciphertext := make([]byte, ciphertextSize)
+		io.ReadFull(cf.base, ciphertext)
+
+		jobs[i] = chunkJob{
+			index:      chunkIdx,
+			nonce:      header.Nonce,
+			ciphertext: ciphertext,
+		}
+	}
+
+	// Decrypt in parallel
+	if err := cf.parallelDecryptChunks(jobs); err != nil {
+		return 0, err
+	}
+
+	// Copy decrypted data to output buffer
+	totalRead := 0
+	for i, job := range jobs {
+		var startOffset int64
+		if i == 0 {
+			startOffset = offsetInStart
+		}
+
+		toCopy := len(job.plaintext) - int(startOffset)
+		remaining := len(p) - totalRead
+		if toCopy > remaining {
+			toCopy = remaining
+		}
+
+		copy(p[totalRead:], job.plaintext[startOffset:startOffset+int64(toCopy)])
+		totalRead += toCopy
+
+		if totalRead >= len(p) {
+			break
+		}
+	}
+
+	cf.position += int64(totalRead)
+	return totalRead, nil
+}
+
 // chunkCache implements a simple LRU cache for chunks
 type chunkCache struct {
 	mu       sync.RWMutex
