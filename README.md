@@ -119,20 +119,36 @@ Both cipher suites provide:
 - Configurable metadata path
 - Transparent path translation
 
-### Phase 4: Advanced Features
+### Phase 4: Advanced Streaming Encryption ✅
 
-**Streaming Encryption**
-- Chunk-based encryption for large files
-- Seek support within encrypted files
-- Memory-efficient operations
-- Parallel encryption/decryption
+**Chunk-Based Encryption** (Implemented)
+- Multi-chunk file format with 64 KB default chunks
+- Efficient random access without decrypting entire file
+- LRU cache for 16 chunks minimizes disk I/O
+- Independent nonce per chunk for security
+- Thread-safe operations with mutex locks
+- Read-modify-write support for partial updates
+- Configurable chunk sizes: 64 bytes to 16 MB
+- Automatic mode selection via Config.ChunkSize
 
-**Compression Integration**
+**Usage Example**
+```go
+config := &encryptfs.Config{
+    Cipher: encryptfs.CipherAES256GCM,
+    KeyProvider: keyProvider,
+    ChunkSize: 64 * 1024, // Enable chunked encryption
+}
+fs, _ := encryptfs.New(base, config)
+```
+
+**Future Advanced Features**
+
+**Compression Integration** (Planned)
 - Optional pre-encryption compression
 - Cipher suite selection based on compressibility
 - Compression detection
 
-**Access Control**
+**Access Control** (Planned)
 - Per-file key derivation
 - Directory-based key hierarchies
 - Multi-user support with key escrow

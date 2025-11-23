@@ -280,6 +280,14 @@ func (cf *ChunkedFile) ensureChunkLoaded(chunkIdx uint32) error {
 		}
 	}
 
+	// Handle new chunk creation (chunk doesn't exist yet)
+	if chunkIdx >= cf.chunkIndex.ChunkCount {
+		cf.currentBuf = make([]byte, 0, cf.chunkSize)
+		cf.currentIdx = chunkIdx
+		cf.chunkDirty = false
+		return nil
+	}
+
 	// Check cache
 	if data, ok := cf.cache.Get(chunkIdx); ok {
 		cf.currentBuf = data
@@ -399,18 +407,9 @@ func (cf *ChunkedFile) flushCurrentChunk() error {
 
 // findOrCreateChunkForWrite finds or creates a chunk for the given write position
 func (cf *ChunkedFile) findOrCreateChunkForWrite(pos int64) (uint32, int64, error) {
-	fileSize := cf.chunkIndex.TotalPlaintextSize()
-
-	if pos <= fileSize {
-		// Writing within existing data
-		return cf.chunkIndex.FindChunkForOffset(pos)
-	}
-
-	// Writing beyond EOF - need to create new chunks
-	// For simplicity, we'll just handle the immediate next chunk
-	// A more complete implementation would handle gaps
-	chunkIdx := cf.chunkIndex.ChunkCount
-	offsetInChunk := pos - fileSize
+	// Calculate which chunk this position falls into
+	chunkIdx := uint32(pos / int64(cf.chunkSize))
+	offsetInChunk := pos % int64(cf.chunkSize)
 
 	return chunkIdx, offsetInChunk, nil
 }
