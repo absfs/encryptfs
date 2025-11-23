@@ -1,6 +1,7 @@
 package encryptfs
 
 import (
+	"errors"
 	"runtime"
 	"sync"
 )
@@ -18,6 +19,28 @@ type ParallelConfig struct {
 	// Below this threshold, sequential processing is used
 	// Defaults to 4
 	MinChunksForParallel int
+}
+
+// Validate checks if the parallel configuration is valid
+func (p *ParallelConfig) Validate() error {
+	if !p.Enabled {
+		return nil // Nothing to validate if disabled
+	}
+
+	if p.MaxWorkers < 0 {
+		return errors.New("parallel max workers cannot be negative")
+	}
+	if p.MaxWorkers > 1024 {
+		return errors.New("parallel max workers must not exceed 1024")
+	}
+	if p.MinChunksForParallel < 1 {
+		return errors.New("parallel min chunks threshold must be at least 1")
+	}
+	if p.MinChunksForParallel > 1000 {
+		return errors.New("parallel min chunks threshold must not exceed 1000")
+	}
+
+	return nil
 }
 
 // DefaultParallelConfig returns the default parallel processing configuration
