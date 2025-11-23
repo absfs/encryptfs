@@ -407,3 +407,315 @@ func (fs *osBenchFS) Create(name string) (absfs.File, error) {
 func (fs *osBenchFS) Truncate(name string, size int64) error {
 	return os.Truncate(filepath.Join(fs.root, name), size)
 }
+
+// ====================================================================================
+// Chunked vs Traditional Benchmarks
+// ====================================================================================
+
+// BenchmarkWriteTraditional benchmarks traditional (single-chunk) file writes
+func BenchmarkWriteTraditional(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1KB", 1024},
+		{"64KB", 64 * 1024},
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 0, // Traditional mode
+			}
+			fs, _ := New(base, config)
+
+			data := make([]byte, size.size)
+			rand.Read(data)
+
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Create("/bench.bin")
+				file.Write(data)
+				file.Close()
+				fs.Remove("/bench.bin")
+			}
+		})
+	}
+}
+
+// BenchmarkWriteChunked benchmarks chunked file writes
+func BenchmarkWriteChunked(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1KB", 1024},
+		{"64KB", 64 * 1024},
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024, // 64KB chunks
+			}
+			fs, _ := New(base, config)
+
+			data := make([]byte, size.size)
+			rand.Read(data)
+
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Create("/bench.bin")
+				file.Write(data)
+				file.Close()
+				fs.Remove("/bench.bin")
+			}
+		})
+	}
+}
+
+// BenchmarkReadTraditional benchmarks traditional (single-chunk) file reads
+func BenchmarkReadTraditional(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1KB", 1024},
+		{"64KB", 64 * 1024},
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 0, // Traditional mode
+			}
+			fs, _ := New(base, config)
+
+			// Create test file
+			data := make([]byte, size.size)
+			rand.Read(data)
+			file, _ := fs.Create("/bench.bin")
+			file.Write(data)
+			file.Close()
+
+			buf := make([]byte, size.size)
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Open("/bench.bin")
+				io.ReadFull(file, buf)
+				file.Close()
+			}
+		})
+	}
+}
+
+// BenchmarkReadChunked benchmarks chunked file reads
+func BenchmarkReadChunked(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1KB", 1024},
+		{"64KB", 64 * 1024},
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024, // 64KB chunks
+			}
+			fs, _ := New(base, config)
+
+			// Create test file
+			data := make([]byte, size.size)
+			rand.Read(data)
+			file, _ := fs.Create("/bench.bin")
+			file.Write(data)
+			file.Close()
+
+			buf := make([]byte, size.size)
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Open("/bench.bin")
+				io.ReadFull(file, buf)
+				file.Close()
+			}
+		})
+	}
+}
+
+// BenchmarkSeekTraditional benchmarks seeking in traditional files (requires full re-read)
+func BenchmarkSeekTraditional(b *testing.B) {
+	base, cleanup := setupBenchFS(b)
+	defer cleanup()
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+		ChunkSize: 0, // Traditional mode
+	}
+	fs, _ := New(base, config)
+
+	// Create 10MB test file
+	data := make([]byte, 10*1024*1024)
+	rand.Read(data)
+	file, _ := fs.Create("/bench.bin")
+	file.Write(data)
+	file.Close()
+
+	buf := make([]byte, 4096)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		file, _ := fs.Open("/bench.bin")
+		// Try to seek and read (traditional mode may not support efficient seeking)
+		file.Seek(5*1024*1024, io.SeekStart) // Seek to middle
+		file.Read(buf)
+		file.Close()
+	}
+}
+
+// BenchmarkSeekChunked benchmarks random seeking in chunked files
+func BenchmarkSeekChunked(b *testing.B) {
+	base, cleanup := setupBenchFS(b)
+	defer cleanup()
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+		ChunkSize: 64 * 1024,
+	}
+	fs, _ := New(base, config)
+
+	// Create 10MB test file
+	data := make([]byte, 10*1024*1024)
+	rand.Read(data)
+	file, _ := fs.Create("/bench.bin")
+	file.Write(data)
+	file.Close()
+
+	// Prepare random seek positions
+	positions := make([]int64, 100)
+	for i := range positions {
+		positions[i] = int64(i * 100000) // Every 100KB
+	}
+
+	buf := make([]byte, 4096)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		file, _ := fs.Open("/bench.bin")
+		for _, pos := range positions {
+			file.Seek(pos, io.SeekStart)
+			file.Read(buf)
+		}
+		file.Close()
+	}
+}
+
+// BenchmarkChunkSizes benchmarks different chunk sizes
+func BenchmarkChunkSizes(b *testing.B) {
+	chunkSizes := []struct {
+		name string
+		size int
+	}{
+		{"4KB", 4 * 1024},
+		{"16KB", 16 * 1024},
+		{"64KB", 64 * 1024},
+		{"256KB", 256 * 1024},
+		{"1MB", 1024 * 1024},
+	}
+
+	fileSize := 10 * 1024 * 1024 // 10MB file
+
+	for _, cs := range chunkSizes {
+		b.Run(cs.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: cs.size,
+			}
+			fs, _ := New(base, config)
+
+			data := make([]byte, fileSize)
+			rand.Read(data)
+
+			b.SetBytes(int64(fileSize))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Create("/bench.bin")
+				file.Write(data)
+				file.Close()
+				fs.Remove("/bench.bin")
+			}
+		})
+	}
+}
