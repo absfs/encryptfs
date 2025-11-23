@@ -2,6 +2,7 @@ package encryptfs
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 )
@@ -101,6 +102,16 @@ func (cf *ChunkedFile) parallelEncryptChunks(chunks []chunkJob) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					// Convert panic to error
+					err := fmt.Errorf("panic in encryption worker: %v", r)
+					select {
+					case errChan <- err:
+					default:
+					}
+				}
+			}()
 			for idx := range jobChan {
 				ciphertext, err := cf.engine.Encrypt(chunks[idx].nonce, chunks[idx].plaintext)
 				if err != nil {
@@ -174,6 +185,16 @@ func (cf *ChunkedFile) parallelDecryptChunks(chunks []chunkJob) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					// Convert panic to error
+					err := fmt.Errorf("panic in decryption worker: %v", r)
+					select {
+					case errChan <- err:
+					default:
+					}
+				}
+			}()
 			for idx := range jobChan {
 				plaintext, err := cf.engine.Decrypt(chunks[idx].nonce, chunks[idx].ciphertext)
 				if err != nil {
