@@ -97,24 +97,27 @@ Both cipher suites provide:
 - Bulk re-encryption utilities
 - Multiple key support for migration
 
-### Phase 3: Filename Encryption
+### Phase 3: Filename Encryption ✅
 
 **Deterministic Filename Encryption**
-- SIV mode (Synthetic IV) for deterministic encryption
+- SIV mode (Synthetic IV) for deterministic encryption (RFC 5297)
 - Preserves directory structure
 - Allows path-based lookups
-- Base64/hex encoding for filesystem compatibility
+- Base64 URL-safe encoding for filesystem compatibility
+- Same filename always encrypts to same ciphertext
 
 **Random Filename Encryption**
 - UUID-based encrypted filenames
-- Metadata database for filename mappings
-- Higher security at cost of complexity
+- JSON metadata database for filename mappings
+- Maximum security - no filename correlation
 - Directory enumeration protection
+- Persistent mapping storage
 
 **Configuration Options**
-- Per-directory encryption policies
-- Filename encryption toggle
+- Three modes: None, Deterministic, Random
 - Extension preservation option
+- Configurable metadata path
+- Transparent path translation
 
 ### Phase 4: Advanced Features
 
