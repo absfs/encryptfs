@@ -719,3 +719,251 @@ func BenchmarkChunkSizes(b *testing.B) {
 		})
 	}
 }
+
+// ====================================================================================
+// Parallel vs Sequential Benchmarks
+// ====================================================================================
+
+// BenchmarkWriteSequential benchmarks sequential chunked writes (no parallel)
+func BenchmarkWriteSequential(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+		{"100MB", 100 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024, // 64KB chunks
+				Parallel: ParallelConfig{
+					Enabled: false, // Sequential
+				},
+			}
+			fs, _ := New(base, config)
+
+			data := make([]byte, size.size)
+			rand.Read(data)
+
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Create("/bench.bin")
+				file.Write(data)
+				file.Close()
+				fs.Remove("/bench.bin")
+			}
+		})
+	}
+}
+
+// BenchmarkWriteParallel benchmarks parallel chunked writes
+func BenchmarkWriteParallel(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+		{"100MB", 100 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024, // 64KB chunks
+				Parallel:  DefaultParallelConfig(), // Parallel enabled
+			}
+			fs, _ := New(base, config)
+
+			data := make([]byte, size.size)
+			rand.Read(data)
+
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Create("/bench.bin")
+				// Use WriteBulk for parallel writes
+				if cf, ok := file.(*ChunkedFile); ok {
+					cf.WriteBulk(data)
+				} else {
+					file.Write(data)
+				}
+				file.Close()
+				fs.Remove("/bench.bin")
+			}
+		})
+	}
+}
+
+// BenchmarkReadSequential benchmarks sequential chunked reads (no parallel)
+func BenchmarkReadSequential(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+		{"100MB", 100 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024, // 64KB chunks
+				Parallel: ParallelConfig{
+					Enabled: false, // Sequential
+				},
+			}
+			fs, _ := New(base, config)
+
+			// Create test file
+			data := make([]byte, size.size)
+			rand.Read(data)
+			file, _ := fs.Create("/bench.bin")
+			file.Write(data)
+			file.Close()
+
+			buf := make([]byte, size.size)
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Open("/bench.bin")
+				io.ReadFull(file, buf)
+				file.Close()
+			}
+		})
+	}
+}
+
+// BenchmarkReadParallel benchmarks parallel chunked reads
+func BenchmarkReadParallel(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1MB", 1024 * 1024},
+		{"10MB", 10 * 1024 * 1024},
+		{"100MB", 100 * 1024 * 1024},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024, // 64KB chunks
+				Parallel:  DefaultParallelConfig(), // Parallel enabled
+			}
+			fs, _ := New(base, config)
+
+			// Create test file
+			data := make([]byte, size.size)
+			rand.Read(data)
+			file, _ := fs.Create("/bench.bin")
+			file.Write(data)
+			file.Close()
+
+			buf := make([]byte, size.size)
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Open("/bench.bin")
+				// Use ReadBulk for parallel reads
+				if cf, ok := file.(*ChunkedFile); ok {
+					cf.ReadBulk(buf)
+				} else {
+					io.ReadFull(file, buf)
+				}
+				file.Close()
+			}
+		})
+	}
+}
+
+// BenchmarkParallelWorkers benchmarks different worker counts
+func BenchmarkParallelWorkers(b *testing.B) {
+	workerCounts := []int{1, 2, 4, 8, 16}
+	fileSize := 10 * 1024 * 1024 // 10MB
+
+	for _, workers := range workerCounts {
+		b.Run(fmt.Sprintf("%dworkers", workers), func(b *testing.B) {
+			base, cleanup := setupBenchFS(b)
+			defer cleanup()
+
+			config := &Config{
+				Cipher: CipherAES256GCM,
+				KeyProvider: NewPasswordKeyProvider([]byte("benchmark"), Argon2idParams{
+					Memory:      64 * 1024,
+					Iterations:  1,
+					Parallelism: 2,
+				}),
+				ChunkSize: 64 * 1024,
+				Parallel: ParallelConfig{
+					Enabled:              true,
+					MaxWorkers:           workers,
+					MinChunksForParallel: 4,
+				},
+			}
+			fs, _ := New(base, config)
+
+			data := make([]byte, fileSize)
+			rand.Read(data)
+
+			b.SetBytes(int64(fileSize))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				file, _ := fs.Create("/bench.bin")
+				if cf, ok := file.(*ChunkedFile); ok {
+					cf.WriteBulk(data)
+				} else {
+					file.Write(data)
+				}
+				file.Close()
+				fs.Remove("/bench.bin")
+			}
+		})
+	}
+}
