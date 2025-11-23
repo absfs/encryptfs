@@ -92,6 +92,9 @@ type Config struct {
 
 	// EnableSeek allows seeking within encrypted files (Phase 4 feature)
 	EnableSeek bool
+
+	// Parallel controls parallel chunk processing (Phase 5 feature)
+	Parallel ParallelConfig
 }
 
 // Validate checks if the configuration is valid
