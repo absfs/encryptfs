@@ -27,3 +27,8 @@ go.work
 # OS files
 .DS_Store
 Thumbs.db
+
+# Claude Code files
+.claude/
+CLAUDE.md
+.project_meta/
