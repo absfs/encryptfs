@@ -354,3 +354,411 @@ func BenchmarkIntegration_FilenameEncryption(b *testing.B) {
 		})
 	}
 }
+
+// Additional integration tests for coverage
+
+func TestIntegration_ChunkedFile_SeekRead(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+		ChunkSize: 4 * 1024, // 4KB chunks
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	// Create file with sequential data spanning multiple chunks
+	testData := make([]byte, 20*1024) // 20KB = 5 chunks
+	for i := range testData {
+		testData[i] = byte(i % 256)
+	}
+
+	file, _ := fs.Create("/seek-test.bin")
+	file.Write(testData)
+	file.Close()
+
+	// Open and test seek operations
+	file, _ = fs.Open("/seek-test.bin")
+	defer file.Close()
+
+	// Seek to middle of chunk 2
+	pos, _ := file.Seek(5000, io.SeekStart)
+	if pos != 5000 {
+		t.Errorf("Seek got %d, want 5000", pos)
+	}
+
+	// Read some data
+	buf := make([]byte, 100)
+	n, _ := file.Read(buf)
+	if n != 100 {
+		t.Errorf("Read got %d bytes, want 100", n)
+	}
+
+	// Verify data is correct
+	for i := 0; i < 100; i++ {
+		expected := byte((5000 + i) % 256)
+		if buf[i] != expected {
+			t.Errorf("Data mismatch at %d: got %d, want %d", i, buf[i], expected)
+			break
+		}
+	}
+}
+
+func TestIntegration_FileReadAt_BeyondEOF(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/eof.txt")
+	file.Write([]byte("short"))
+	file.Close()
+
+	file, _ = fs.Open("/eof.txt")
+	defer file.Close()
+
+	// ReadAt beyond EOF
+	buf := make([]byte, 10)
+	_, err = file.ReadAt(buf, 100)
+	if err != io.EOF {
+		t.Errorf("Expected EOF, got %v", err)
+	}
+}
+
+func TestIntegration_FileWriteAt_Extend(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/extend.txt")
+	file.Write([]byte("start"))
+
+	// WriteAt beyond current size
+	file.WriteAt([]byte("END"), 10)
+	file.Close()
+
+	// Verify
+	file, _ = fs.Open("/extend.txt")
+	defer file.Close()
+
+	data, _ := io.ReadAll(file)
+	if len(data) != 13 { // "start" + zeros + "END"
+		t.Errorf("Expected 13 bytes, got %d", len(data))
+	}
+}
+
+func TestIntegration_File_Truncate_Extend(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/truncate.txt")
+	file.Write([]byte("short"))
+
+	// Extend via truncate
+	file.Truncate(20)
+	file.Close()
+
+	// Verify
+	file, _ = fs.Open("/truncate.txt")
+	defer file.Close()
+
+	data, _ := io.ReadAll(file)
+	if len(data) != 20 {
+		t.Errorf("Expected 20 bytes, got %d", len(data))
+	}
+}
+
+func TestIntegration_File_Truncate_Shrink(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/truncate.txt")
+	file.Write([]byte("0123456789"))
+
+	// Shrink via truncate
+	file.Truncate(5)
+	file.Close()
+
+	// Verify
+	file, _ = fs.Open("/truncate.txt")
+	defer file.Close()
+
+	data, _ := io.ReadAll(file)
+	if string(data) != "01234" {
+		t.Errorf("Expected '01234', got %q", string(data))
+	}
+}
+
+func TestIntegration_File_Truncate_Negative(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/truncate-neg.txt")
+	file.Write([]byte("test"))
+
+	// Negative truncate should error
+	err = file.Truncate(-1)
+	if err == nil {
+		t.Error("Expected error for negative truncate")
+	}
+	file.Close()
+}
+
+func TestIntegration_File_WriteAt_Negative(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/writeat-neg.txt")
+
+	// Negative offset should error
+	_, err = file.WriteAt([]byte("test"), -1)
+	if err == nil {
+		t.Error("Expected error for negative WriteAt offset")
+	}
+	file.Close()
+}
+
+func TestIntegration_File_ReadAt_Negative(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/readat-neg.txt")
+	file.Write([]byte("test"))
+	file.Close()
+
+	file, _ = fs.Open("/readat-neg.txt")
+
+	// Negative offset should error
+	_, err = file.ReadAt(make([]byte, 10), -1)
+	if err == nil {
+		t.Error("Expected error for negative ReadAt offset")
+	}
+	file.Close()
+}
+
+func TestIntegration_File_Seek_Invalid(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/seek.txt")
+	file.Write([]byte("test"))
+	file.Close()
+
+	file, _ = fs.Open("/seek.txt")
+
+	// Invalid whence
+	_, err = file.Seek(0, 99)
+	if err == nil {
+		t.Error("Expected error for invalid whence")
+	}
+
+	// Negative position
+	_, err = file.Seek(-100, io.SeekStart)
+	if err == nil {
+		t.Error("Expected error for negative seek")
+	}
+
+	file.Close()
+}
+
+func TestIntegration_PBKDF2Provider(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	// Use PBKDF2 with SHA512
+	config := &Config{
+		Cipher: CipherAES256GCM,
+		KeyProvider: NewPasswordKeyProviderPBKDF2([]byte("test-password"), PBKDF2Params{
+			Iterations: 1000, // Low for testing
+			HashFunc:   SHA512,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/pbkdf2.txt")
+	file.Write([]byte("PBKDF2 test"))
+	file.Close()
+
+	file, _ = fs.Open("/pbkdf2.txt")
+	data, _ := io.ReadAll(file)
+	file.Close()
+
+	if string(data) != "PBKDF2 test" {
+		t.Errorf("Got %q", string(data))
+	}
+}
+
+func TestIntegration_ChaCha20Poly1305(t *testing.T) {
+	base, err := memfs.NewFS()
+	if err != nil {
+		t.Fatalf("Failed to create memfs: %v", err)
+	}
+
+	config := &Config{
+		Cipher: CipherChaCha20Poly1305,
+		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
+			Memory:      64 * 1024,
+			Iterations:  1,
+			Parallelism: 2,
+		}),
+	}
+
+	fs, err := New(base, config)
+	if err != nil {
+		t.Fatalf("Failed to create EncryptFS: %v", err)
+	}
+
+	file, _ := fs.Create("/chacha.txt")
+	file.Write([]byte("ChaCha20-Poly1305 test"))
+	file.Close()
+
+	file, _ = fs.Open("/chacha.txt")
+	data, _ := io.ReadAll(file)
+	file.Close()
+
+	if string(data) != "ChaCha20-Poly1305 test" {
+		t.Errorf("Got %q", string(data))
+	}
+}

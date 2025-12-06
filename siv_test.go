@@ -222,6 +222,36 @@ func TestSIVEngine_ShortCiphertext(t *testing.T) {
 	}
 }
 
+func TestSIVEngine_NonceSize(t *testing.T) {
+	key := make([]byte, 64)
+	rand.Read(key)
+
+	siv, err := NewSIVEngine(key)
+	if err != nil {
+		t.Fatalf("Failed to create SIV engine: %v", err)
+	}
+
+	// SIV doesn't use nonces, so NonceSize should be 0
+	if siv.NonceSize() != 0 {
+		t.Errorf("Expected NonceSize 0, got %d", siv.NonceSize())
+	}
+}
+
+func TestSIVEngine_Overhead(t *testing.T) {
+	key := make([]byte, 64)
+	rand.Read(key)
+
+	siv, err := NewSIVEngine(key)
+	if err != nil {
+		t.Fatalf("Failed to create SIV engine: %v", err)
+	}
+
+	// SIV overhead is 16 bytes
+	if siv.Overhead() != 16 {
+		t.Errorf("Expected Overhead 16, got %d", siv.Overhead())
+	}
+}
+
 func BenchmarkSIVEngine_Encrypt(b *testing.B) {
 	key := make([]byte, 64)
 	rand.Read(key)

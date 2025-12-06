@@ -332,3 +332,35 @@ func TestErrorConstructors(t *testing.T) {
 		}
 	})
 }
+
+func TestErrorUnwrap(t *testing.T) {
+	baseErr := errors.New("base error")
+
+	t.Run("EncryptionError.Unwrap", func(t *testing.T) {
+		ee := &EncryptionError{Operation: "test", Err: baseErr}
+		if ee.Unwrap() != baseErr {
+			t.Error("Unwrap did not return wrapped error")
+		}
+	})
+
+	t.Run("IOError.Unwrap", func(t *testing.T) {
+		ie := &IOError{Operation: "test", Err: baseErr}
+		if ie.Unwrap() != baseErr {
+			t.Error("Unwrap did not return wrapped error")
+		}
+	})
+
+	t.Run("CorruptionError.Unwrap", func(t *testing.T) {
+		ce := &CorruptionError{Message: "test", Err: baseErr}
+		if ce.Unwrap() != baseErr {
+			t.Error("Unwrap did not return wrapped error")
+		}
+	})
+
+	t.Run("AuthenticationError.Unwrap", func(t *testing.T) {
+		ae := &AuthenticationError{Message: "test", Err: baseErr}
+		if ae.Unwrap() != baseErr {
+			t.Error("Unwrap did not return wrapped error")
+		}
+	})
+}
