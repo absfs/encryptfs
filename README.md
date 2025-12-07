@@ -1,5 +1,10 @@
 # encryptfs
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/absfs/encryptfs.svg)](https://pkg.go.dev/github.com/absfs/encryptfs)
+[![Go Report Card](https://goreportcard.com/badge/github.com/absfs/encryptfs)](https://goreportcard.com/report/github.com/absfs/encryptfs)
+[![CI](https://github.com/absfs/encryptfs/actions/workflows/ci.yml/badge.svg)](https://github.com/absfs/encryptfs/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A transparent encryption layer for the AbsFs filesystem abstraction, providing secure at-rest encryption with modern cryptographic primitives.
 
 ## Overview
