@@ -335,7 +335,7 @@ func (cf *ChunkedFile) readChunk(chunkIdx uint32) ([]byte, error) {
 
 	// Read chunk header
 	chunkHeader := &EncryptedChunkHeader{}
-	if _, err := chunkHeader.ReadFrom(cf.base, cf.engine.NonceSize()); err != nil {
+	if _, err := chunkHeader.ReadChunkHeader(cf.base, cf.engine.NonceSize()); err != nil {
 		return nil, fmt.Errorf("failed to read chunk header: %w", err)
 	}
 
@@ -812,7 +812,7 @@ func (cf *ChunkedFile) ReadBulk(p []byte) (int, error) {
 		// Seek and read chunk header
 		cf.base.Seek(int64(offset), io.SeekStart)
 		header := &EncryptedChunkHeader{}
-		header.ReadFrom(cf.base, cf.engine.NonceSize())
+		header.ReadChunkHeader(cf.base, cf.engine.NonceSize())
 
 		// Read ciphertext
 		ciphertextSize := int(plaintextSize) + cf.engine.Overhead()

@@ -1104,7 +1104,7 @@ func TestEncryptedChunkHeader_WriteRead(t *testing.T) {
 	}
 
 	readHeader := &EncryptedChunkHeader{}
-	_, err = readHeader.ReadFrom(buf, 12)
+	_, err = readHeader.ReadChunkHeader(buf, 12)
 	if err != nil {
 		t.Fatalf("ReadFrom failed: %v", err)
 	}

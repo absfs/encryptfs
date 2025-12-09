@@ -249,8 +249,10 @@ func (h *EncryptedChunkHeader) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 
-// ReadFrom reads the chunk header from a reader
-func (h *EncryptedChunkHeader) ReadFrom(r io.Reader, nonceSize int) (int64, error) {
+// ReadChunkHeader reads the chunk header from a reader.
+// Note: This method intentionally doesn't implement io.ReaderFrom because it requires
+// the nonceSize parameter which varies by cipher configuration.
+func (h *EncryptedChunkHeader) ReadChunkHeader(r io.Reader, nonceSize int) (int64, error) {
 	var totalRead int64
 
 	// Read plaintext size
