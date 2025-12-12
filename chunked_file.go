@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 
@@ -641,6 +642,11 @@ func (cf *ChunkedFile) Readdirnames(n int) ([]string, error) {
 
 // Readdir reads directory entries (not applicable for files)
 func (cf *ChunkedFile) Readdir(n int) ([]os.FileInfo, error) {
+	return nil, fmt.Errorf("not a directory")
+}
+
+// ReadDir reads directory entries (not applicable for files)
+func (cf *ChunkedFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	return nil, fmt.Errorf("not a directory")
 }
 

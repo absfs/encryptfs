@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -376,12 +377,16 @@ func (fs *osBenchFS) Chown(name string, uid, gid int) error {
 	return os.Chown(filepath.Join(fs.root, name), uid, gid)
 }
 
-func (fs *osBenchFS) Separator() uint8 {
-	return os.PathSeparator
+func (fs *osBenchFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return os.ReadDir(filepath.Join(fs.root, name))
 }
 
-func (fs *osBenchFS) ListSeparator() uint8 {
-	return os.PathListSeparator
+func (fs *osBenchFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(fs.root, name))
+}
+
+func (f *osBenchFS) Sub(dir string) (fs.FS, error) {
+	return absfs.FilerToFS(f, dir)
 }
 
 func (fs *osBenchFS) Chdir(dir string) error {

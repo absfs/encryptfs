@@ -396,7 +396,7 @@ func (r *randomFilenameEncryptor) DecryptPath(ciphertext string) (string, error)
 
 // NewFilenameEncryptor creates a filename encryptor based on the configuration
 func NewFilenameEncryptor(config *Config, key []byte, fs absfs.FileSystem) (FilenameEncryptor, error) {
-	separator := string([]byte{fs.Separator()})
+	separator := string([]byte{absfs.Separator})
 
 	switch config.FilenameEncryption {
 	case FilenameEncryptionNone:

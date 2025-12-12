@@ -2,6 +2,8 @@ package encryptfs
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"time"
 
@@ -70,16 +72,6 @@ func (e *EncryptFS) translatePath(plaintext string) (string, error) {
 // untranslatePath translates an encrypted path back to plaintext
 func (e *EncryptFS) untranslatePath(ciphertext string) (string, error) {
 	return e.filenameEncryptor.DecryptPath(ciphertext)
-}
-
-// Separator returns the path separator for the underlying filesystem
-func (e *EncryptFS) Separator() uint8 {
-	return e.base.Separator()
-}
-
-// ListSeparator returns the list separator for the underlying filesystem
-func (e *EncryptFS) ListSeparator() uint8 {
-	return e.base.ListSeparator()
 }
 
 // Chdir changes the current working directory
@@ -286,4 +278,139 @@ func (e *encryptedFileInfo) Size() int64 {
 	// For simplicity in this initial implementation, we return the actual size
 	// In a full implementation, we would calculate the actual plaintext size
 	return e.FileInfo.Size()
+}
+
+// ReadDir reads the named directory and returns a list of directory entries
+func (e *EncryptFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	encryptedPath, err := e.translatePath(name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Delegate to the underlying filesystem's ReadDir if available
+	if rdr, ok := e.base.(interface{ ReadDir(string) ([]fs.DirEntry, error) }); ok {
+		entries, err := rdr.ReadDir(encryptedPath)
+		if err != nil {
+			return nil, err
+		}
+		// Directory entries don't need decryption, just return them
+		return entries, nil
+	}
+
+	// Fallback: use Open and File.ReadDir
+	f, err := e.base.Open(encryptedPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return f.ReadDir(-1)
+}
+
+// ReadFile reads the named file and returns its decrypted contents
+func (e *EncryptFS) ReadFile(name string) ([]byte, error) {
+	// Open the file for reading
+	f, err := e.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	// Get file size
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	// Allocate buffer and read
+	buf := make([]byte, info.Size())
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	return buf[:n], nil
+}
+
+// Sub returns a fs.FS corresponding to the subtree rooted at dir
+func (e *EncryptFS) Sub(dir string) (fs.FS, error) {
+	// Translate the directory path
+	encryptedPath, err := e.translatePath(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify the directory exists and is a directory
+	info, err := e.base.Stat(encryptedPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, &os.PathError{Op: "sub", Path: dir, Err: fs.ErrInvalid}
+	}
+
+	// Create a wrapper that prefixes paths to provide a subtree view
+	subFS := &subEncryptFS{
+		parent: e,
+		prefix: dir,
+	}
+	return absfs.FilerToFS(subFS, dir)
+}
+
+// subEncryptFS wraps an EncryptFS to provide a subtree view
+type subEncryptFS struct {
+	parent *EncryptFS
+	prefix string
+}
+
+func (s *subEncryptFS) fullPath(name string) string {
+	if name == "." {
+		return s.prefix
+	}
+	// Use path.Join to properly handle path concatenation
+	return s.prefix + "/" + name
+}
+
+func (s *subEncryptFS) OpenFile(name string, flag int, perm os.FileMode) (absfs.File, error) {
+	return s.parent.OpenFile(s.fullPath(name), flag, perm)
+}
+
+func (s *subEncryptFS) Mkdir(name string, perm os.FileMode) error {
+	return s.parent.Mkdir(s.fullPath(name), perm)
+}
+
+func (s *subEncryptFS) Remove(name string) error {
+	return s.parent.Remove(s.fullPath(name))
+}
+
+func (s *subEncryptFS) Rename(oldpath, newpath string) error {
+	return s.parent.Rename(s.fullPath(oldpath), s.fullPath(newpath))
+}
+
+func (s *subEncryptFS) Stat(name string) (os.FileInfo, error) {
+	return s.parent.Stat(s.fullPath(name))
+}
+
+func (s *subEncryptFS) Chmod(name string, mode os.FileMode) error {
+	return s.parent.Chmod(s.fullPath(name), mode)
+}
+
+func (s *subEncryptFS) Chtimes(name string, atime time.Time, mtime time.Time) error {
+	return s.parent.Chtimes(s.fullPath(name), atime, mtime)
+}
+
+func (s *subEncryptFS) Chown(name string, uid, gid int) error {
+	return s.parent.Chown(s.fullPath(name), uid, gid)
+}
+
+func (s *subEncryptFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return s.parent.ReadDir(s.fullPath(name))
+}
+
+func (s *subEncryptFS) ReadFile(name string) ([]byte, error) {
+	return s.parent.ReadFile(s.fullPath(name))
+}
+
+func (s *subEncryptFS) Sub(dir string) (fs.FS, error) {
+	return s.parent.Sub(s.fullPath(dir))
 }

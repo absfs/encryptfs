@@ -3,6 +3,7 @@ package encryptfs
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 
 	"github.com/absfs/absfs"
@@ -389,4 +390,9 @@ func (f *encryptedFile) Truncate(size int64) error {
 	f.dirty = true
 
 	return nil
+}
+
+// ReadDir reads directory entries (delegates to base file)
+func (f *encryptedFile) ReadDir(n int) ([]fs.DirEntry, error) {
+	return f.base.ReadDir(n)
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	ioFS "io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -62,12 +63,25 @@ func (fs *simpleFS) Chown(name string, uid, gid int) error {
 	return os.Chown(filepath.Join(fs.root, name), uid, gid)
 }
 
-func (fs *simpleFS) Separator() uint8 {
-	return os.PathSeparator
+func (fs *simpleFS) ReadDir(name string) ([]ioFS.DirEntry, error) {
+	return os.ReadDir(filepath.Join(fs.root, name))
 }
 
-func (fs *simpleFS) ListSeparator() uint8 {
-	return os.PathListSeparator
+func (fs *simpleFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(fs.root, name))
+}
+
+func (fs *simpleFS) Sub(dir string) (ioFS.FS, error) {
+	fullPath := filepath.Join(fs.root, dir)
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, &os.PathError{Op: "sub", Path: dir, Err: ioFS.ErrInvalid}
+	}
+	subFS := &simpleFS{root: fullPath}
+	return absfs.FilerToFS(subFS, dir)
 }
 
 func (fs *simpleFS) Chdir(dir string) error {

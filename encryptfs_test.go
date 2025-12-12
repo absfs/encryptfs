@@ -3,6 +3,7 @@ package encryptfs
 import (
 	"bytes"
 	"io"
+	ioFS "io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -85,12 +86,16 @@ func (fs *osTestFS) Chown(name string, uid, gid int) error {
 	return os.Chown(filepath.Join(fs.root, name), uid, gid)
 }
 
-func (fs *osTestFS) Separator() uint8 {
-	return os.PathSeparator
+func (fs *osTestFS) ReadDir(name string) ([]ioFS.DirEntry, error) {
+	return os.ReadDir(filepath.Join(fs.root, name))
 }
 
-func (fs *osTestFS) ListSeparator() uint8 {
-	return os.PathListSeparator
+func (fs *osTestFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(fs.root, name))
+}
+
+func (fs *osTestFS) Sub(dir string) (ioFS.FS, error) {
+	return absfs.FilerToFS(fs, dir)
 }
 
 func (fs *osTestFS) Chdir(dir string) error {
@@ -432,53 +437,9 @@ func TestEncryptFS_WrongPassword(t *testing.T) {
 
 // Filesystem operation tests for coverage
 
-func TestEncryptFS_Separator(t *testing.T) {
-	base, cleanup := setupTestFS(t)
-	defer cleanup()
+// TestEncryptFS_Separator removed - Separator method removed in absfs 1.0
 
-	config := &Config{
-		Cipher: CipherAES256GCM,
-		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
-			Memory:      64 * 1024,
-			Iterations:  1,
-			Parallelism: 2,
-		}),
-	}
-
-	fs, err := New(base, config)
-	if err != nil {
-		t.Fatalf("Failed to create EncryptFS: %v", err)
-	}
-
-	sep := fs.Separator()
-	if sep == 0 {
-		t.Error("Separator returned 0")
-	}
-}
-
-func TestEncryptFS_ListSeparator(t *testing.T) {
-	base, cleanup := setupTestFS(t)
-	defer cleanup()
-
-	config := &Config{
-		Cipher: CipherAES256GCM,
-		KeyProvider: NewPasswordKeyProvider([]byte("test-password"), Argon2idParams{
-			Memory:      64 * 1024,
-			Iterations:  1,
-			Parallelism: 2,
-		}),
-	}
-
-	fs, err := New(base, config)
-	if err != nil {
-		t.Fatalf("Failed to create EncryptFS: %v", err)
-	}
-
-	sep := fs.ListSeparator()
-	if sep == 0 {
-		t.Error("ListSeparator returned 0")
-	}
-}
+// TestEncryptFS_ListSeparator removed - ListSeparator method removed in absfs 1.0
 
 func TestEncryptFS_TempDir(t *testing.T) {
 	base, cleanup := setupTestFS(t)
